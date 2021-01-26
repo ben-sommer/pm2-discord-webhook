@@ -1,0 +1,26 @@
+{
+  "name": "pm2-discord-webhook",
+  "version": "1.0.0",
+  "description": "PM2 Discord Notifier",
+  "main": "app.js",
+  "dependencies": {
+    "pmx": "beta"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ben-sommer/pm2-discord-webhook.git"
+  },
+  "config": {
+    "webhook_url_logs": null,
+    "webhook_url_errors": null
+  },
+  "apps": [
+    {
+      "merge_logs": true,
+      "max_memory_restart": "200M",
+      "script": "app.js"
+    }
+  ],
+  "author": "Ben Sommer",
+  "license": "MIT"
+}
