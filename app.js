@@ -44,7 +44,7 @@ function sendToDiscord(message) {
     method: 'post',
     body: payload,
     json: true,
-    url: msg.event === "log" ? conf.webhook_url_logs : conf.webhook_url_errors
+    url: message.event === "log" ? conf.webhook_url_logs : conf.webhook_url_errors
   };
 
   // Finally, make the post request to the Discord Incoming Webhook
