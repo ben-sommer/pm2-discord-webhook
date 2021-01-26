@@ -1,6 +1,6 @@
 {
   "name": "pm2-discord-webhook",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "description": "PM2 Discord Notifier",
   "main": "app.js",
   "dependencies": {
