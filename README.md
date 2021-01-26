@@ -8,10 +8,12 @@ To install and setup pm2-discord-webhook, run the following commands:
 
 ```
 pm2 install pm2-discord-webhook
-pm2 set pm2-discord-webhook:discord_url https://discord_url
+pm2 set pm2-discord-webhook:discord_url_logs https://discord_url
+pm2 set pm2-discord-webhook:discord_url_errors https://discord_url
 ```
 
 #### `discord_url`
+2 variants available - logs and errors are separated to enable different levels of reporting - both required (you can set them equal to each other)
 To get the Discord URL, you need to setup a Webhook. More details on how to set this up can be found here: https://support.discordapp.com/hc/en-us/articles/228383668-Intro-to-Webhooks
 
 ## Configure
