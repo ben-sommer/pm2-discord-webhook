@@ -118,7 +118,7 @@ function processQueue() {
   // Wait 10 seconds and then process the next message in the queue
   setTimeout(function() {
     processQueue();
-  }, 10000);
+  }, 2000);
 }
 
 function createMessage(data, eventName, altDescription) {
