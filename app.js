@@ -1,161 +1,194 @@
-
+'use strict';
+var pm2 = require('pm2');
 var pmx = require('pmx');
+var request = require('request');
+var stripAnsi = require('strip-ansi');
 
-/******************************
- *    ______ _______ ______
- *   |   __ \   |   |__    |
- *   |    __/       |    __|
- *   |___|  |__|_|__|______|
- *
- *      PM2 Module Sample
- *
- ******************************/
+// Get the configuration from PM2
+var conf = pmx.initModule();
 
-/**
- *    Module system documentation
- *       http://bit.ly/1hnpcgu
- *
- *   Start module in development mode
- *          $ cd to my-module
- *          $ pm2 install .
- *
- *  Official modules are published here
- *      https://github.com/pm2-hive
- */
+// initialize buffer and queue_max opts
+// buffer seconds can be between 1 and 5
+conf.buffer_seconds = (conf.buffer_seconds > 0 && conf.buffer_seconds < 5) ? conf.buffer_seconds : 1;
 
-/**
- *           Module Entry Point
- *
- *  We first initialize the module by calling
- *         pmx.initModule({}, cb);
- *
- *
- * More options: http://bit.ly/1EpagZS
- *
- */
-pmx.initModule({
+// queue max can be between 10 and 100
+conf.queue_max = (conf.queue_max > 10 && conf.queue_max <= 100) ? conf.queue_max : 100;
 
-  // Options related to the display style on Keymetrics
-  widget : {
+// create the message queue
+var messages = [];
 
-    // Logo displayed
-    logo : 'https://app.keymetrics.io/img/logo/keymetrics-300.png',
+// create the suppressed object for sending suppression messages
+var suppressed = {
+  isSuppressed: false,
+  date: new Date().getTime()
+};
 
-    // Module colors
-    // 0 = main element
-    // 1 = secondary
-    // 2 = main border
-    // 3 = secondary border
-    theme            : ['#141A1F', '#222222', '#3ff', '#3ff'],
 
-    // Section to show / hide
-    el : {
-      probes  : true,
-      actions : true
-    },
+// Function to send event to Discord's Incoming Webhook
+function sendToDiscord(message) {
 
-    // Main block to show / hide
-    block : {
-      actions : false,
-      issues  : true,
-      meta    : true,
+  var description = message.description;
 
-      // Custom metrics to put in BIG
-      main_probes : ['test-probe']
-    }
-
+  // If a Discord URL is not set, we do not want to continue and nofify the user that it needs to be set
+  if (!conf.discord_url) {
+    return console.error("There is no Discord URL set, please set the Discord URL: 'pm2 set pm2-discord-webhook:discord_url https://[discord_url]'");
   }
 
-}, function(err, conf) {
+  // The JSON payload to send to the Webhook
+  var payload = {
+    "content" : description
+  };
 
-  /**
-   * Module specifics like connecting to a database and
-   * displaying some metrics
-   */
+  // Options for the post request
+  var options = {
+    method: 'post',
+    body: payload,
+    json: true,
+    url: msg.event === "log" ? conf.webhook_url_logs : conf.webhook_url_errors
+  };
 
-  /**
-   *                      Custom Metrics
-   *
-   * Let's expose some metrics that will be displayed into Keymetrics
-   *   For more documentation about metrics: http://bit.ly/1PZrMFB
-   */
-  var Probe = pmx.probe();
-
-  var value_to_inspect = 0;
-
-  /**
-   * .metric, .counter, .meter, .histogram are also available (cf doc)
-   */
-  var val = Probe.metric({
-    name : 'test-probe',
-    value : function() {
-      return value_to_inspect;
-    },
-    /**
-     * Here we set a default value threshold, to receive a notification
-     * These options can be overriden via Keymetrics or via pm2
-     * More: http://bit.ly/1O02aap
-     */
-    alert : {
-      mode     : 'threshold',
-      value    : 20,
-      msg      : 'test-probe alert!',
-      action   : function(val) {
-        // Besides the automatic alert sent via Keymetrics
-        // You can also configure your own logic to do something
-        console.log('Value has reached %d', val);
-      }
+  // Finally, make the post request to the Discord Incoming Webhook
+  request(options, function(err, res, body) {
+    if (err) {
+      return console.error(err);
+    }
+    /* A successful POST to Discord's webhook responds with a 204 NO CONTENT */
+    if (res.statusCode !== 204) {
+      console.error("Error occured during the request to the Discord webhook");
     }
   });
+}
 
-  setInterval(function() {
-    // Then we can see that this value increase over the time in Keymetrics
-    value_to_inspect++;
-  }, 300);
+// Function to get the next buffer of messages (buffer length = 1s)
+function bufferMessage() {
+  var nextMessage = messages.shift();
 
+  if (!conf.buffer) { return nextMessage; }
 
-  /**
-   *                Simple Actions
-   *
-   *   Now let's expose some triggerable functions
-   *  Once created you can trigger this from Keymetrics
-   *
-   */
-  pmx.action('env', function(reply) {
-    return reply({
-      env: process.env
-    });
-  });
+  nextMessage.buffer = [nextMessage.description];
 
-  /**
-   *                 Scoped Actions
-   *
-   *     This are for long running remote function
-   * This allow also to res.emit logs to see the progress
-   *
-   **/
-  var spawn = require('child_process').spawn;
+  // continue shifting elements off the queue while they are the same event and 
+  // timestamp so they can be buffered together into a single request
+  while (messages.length && 
+    (messages[0].timestamp >= nextMessage.timestamp && 
+      messages[0].timestamp < (nextMessage.timestamp + conf.buffer_seconds)) && 
+    messages[0].event === nextMessage.event) {
 
-  pmx.scopedAction('lsof cmd', function(options, res) {
-    var child = spawn('lsof', []);
+    // append description to our buffer and shift the message off the queue and discard it
+    nextMessage.buffer.push(messages[0].description);
+    messages.shift();
+  }
 
-    child.stdout.on('data', function(chunk) {
-      chunk.toString().split('\n').forEach(function(line) {
-        /**
-         * Here we send logs attached to this command
-         */
-        res.send(line);
+  // join the buffer with newlines
+  nextMessage.description = nextMessage.buffer.join("\n");
+
+  // delete the buffer from memory
+  delete nextMessage.buffer;
+
+  return nextMessage;
+}
+
+// Function to process the message queue
+function processQueue() {
+
+  // If we have a message in the message queue, removed it from the queue and send it to discord
+  if (messages.length > 0) {
+    sendToDiscord(bufferMessage());
+  }
+
+  // If there are over conf.queue_max messages in the queue, send the suppression message if it has not been sent and delete all the messages in the queue after this amount (default: 100)
+  if (messages.length > conf.queue_max) {
+    if (!suppressed.isSuppressed) {
+      suppressed.isSuppressed = true;
+      suppressed.date = new Date().getTime();
+      sendToDiscord({
+          name: 'pm2-discord-webhook',
+          event: 'suppressed',
+          description: 'Messages are being suppressed due to rate limiting.'
       });
-    });
+    }
+    messages.splice(conf.queue_max, messages.length);
+  }
 
-    child.stdout.on('end', function(chunk) {
-      /**
-       * Then we emit end to finalize the function
-       */
-      res.end('end');
-    });
+  // If the suppression message has been sent over 1 minute ago, we need to reset it back to false
+  if (suppressed.isSuppressed && suppressed.date < (new Date().getTime() - 60000)) {
+    suppressed.isSuppressed = false;
+  }
 
+  // Wait 10 seconds and then process the next message in the queue
+  setTimeout(function() {
+    processQueue();
+  }, 10000);
+}
+
+function createMessage(data, eventName, altDescription) {
+  // we don't want to output pm2-discord-webhook's logs
+  if (data.process.name === 'pm2-discord-webhook') {
+    return;
+  }
+  // if a specific process name was specified then we check to make sure only 
+  // that process gets output
+  if (conf.process_name !== null && data.process.name !== conf.process_name) {
+    return;
+  }
+
+  var msg = altDescription || data.data;
+  if (typeof msg === "object") {
+    msg = JSON.stringify(msg);
+  } 
+
+  messages.push({
+    name: data.process.name,
+    event: eventName,
+    description: stripAnsi(msg),
+    timestamp: Math.floor(Date.now() / 1000),
   });
+}
 
+// Start listening on the PM2 BUS
+pm2.launchBus(function(err, bus) {
+
+    // Listen for process logs
+    if (conf.log) {
+      bus.on('log:out', function(data) {
+        createMessage(data, 'log');
+      });
+    }
+
+    // Listen for process errors
+    if (conf.error) {
+      bus.on('log:err', function(data) {
+        createMessage(data, 'error');
+      });
+    }
+
+    // Listen for PM2 kill
+    if (conf.kill) {
+      bus.on('pm2:kill', function(data) {
+        messages.push({
+          name: 'PM2',
+          event: 'kill',
+          description: data.msg,
+          timestamp: Math.floor(Date.now() / 1000),
+        });
+      });
+    }
+
+    // Listen for process exceptions
+    if (conf.exception) {
+      bus.on('process:exception', function(data) {
+        createMessage(data, 'exception');
+      });
+    }
+
+    // Listen for PM2 events
+    bus.on('process:event', function(data) {
+      if (!conf[data.event]) { return; }
+      var msg = 'The following event has occured on the PM2 process ' + data.process.name + ': ' + data.event;
+      createMessage(data, data.event, msg);
+    });
+
+    // Start the message processing
+    processQueue();
 
 });
