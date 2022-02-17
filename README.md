@@ -8,8 +8,8 @@ To install and setup pm2-discord-webhook, run the following commands:
 
 ```
 pm2 install pm2-discord-webhook
-pm2 set pm2-discord-webhook:discord_url_logs https://discord_url
-pm2 set pm2-discord-webhook:discord_url_errors https://discord_url
+pm2 set pm2-discord-webhook:webhook_url_logs https://discord_url
+pm2 set pm2-discord-webhook:webhook_url_errors https://discord_url
 ```
 
 #### `discord_url`
